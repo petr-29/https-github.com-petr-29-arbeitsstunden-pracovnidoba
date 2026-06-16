@@ -32,20 +32,16 @@
             width: 100%;
         }
 
-        h1, h2 {
-            color: #111;
-            margin-top: 0;
-        }
+        h1, h2 { color: #111; margin-top: 0; }
 
-        .form-group {
-            margin-bottom: 15px;
-        }
+        .form-group { margin-bottom: 15px; }
 
         label {
             display: block;
             font-weight: bold;
             margin-bottom: 5px;
             font-size: 0.9em;
+            color: #555;
         }
 
         input[type="text"], input[type="date"], input[type="time"], textarea, select {
@@ -55,7 +51,27 @@
             border-radius: 4px;
             box-sizing: border-box;
             font-size: 1em;
+            transition: all 0.3s ease;
         }
+
+        /* --- STYLY PRO REŽIM ŠÉFA (Čtení) --- */
+        .boss-mode input[type="text"], 
+        .boss-mode input[type="date"], 
+        .boss-mode input[type="time"], 
+        .boss-mode textarea {
+            border: none;
+            background: transparent;
+            padding: 5px 0;
+            font-weight: bold;
+            color: #000;
+            pointer-events: none;
+            resize: none;
+        }
+        
+        .boss-mode input[type="checkbox"] {
+            pointer-events: none;
+        }
+        /* ---------------------------------- */
 
         .grid-2 {
             display: grid;
@@ -75,9 +91,7 @@
             text-align: left;
         }
 
-        th {
-            background-color: #f8f9fa;
-        }
+        th { background-color: #f8f9fa; }
 
         .checkbox-group {
             display: flex;
@@ -166,7 +180,7 @@
 </head>
 <body>
 
-<div class="container">
+<div class="container" id="mainContainer">
     <div id="errorAlert" class="alert"></div>
 
     <h1>Protokol o převzetí / Abnahmeprotokoll</h1>
@@ -245,18 +259,20 @@
         <div class="canvas-container">
             <canvas id="signatureCanvas"></canvas>
         </div>
-        <button type="button" class="btn-clear" onclick="clearCanvas()">Vymazat podpis / Löschen</button>
-        <input type="hidden" id="podpisKundeText" value="---">
+        <button type="button" class="btn-clear" id="btnClearSignature" onclick="clearCanvas()">Vymazat podpis / Löschen</button>
     </div>
 
-    <div class="actions">
-        <button class="btn btn-primary" onclick="generateShareLink()">Generovat odkaz pro WhatsApp</button>
-        <button class="btn btn-success" onclick="saveAsPDF()">Uložit jako PDF</button>
+    <div class="actions" id="petrActions">
+        <button class="btn btn-primary" onclick="generateBossLink()">Vygenerovat odkaz pro podpis</button>
+    </div>
+
+    <div class="actions" id="bossActions" style="display: none;">
+        <button class="btn btn-success" onclick="saveAsPDF()">Stáhnout PDF</button>
+        <button class="btn btn-primary" onclick="confirmSignature()">Potvrdit podepsání</button>
     </div>
 </div>
 
 <script>
-    // Inicializace kreslení na canvasu
     const canvas = document.getElementById('signatureCanvas');
     const ctx = canvas.getContext('2d');
     let isDrawing = false;
@@ -274,10 +290,9 @@
     window.addEventListener('resize', resizeCanvas);
     document.addEventListener('DOMContentLoaded', () => {
         resizeCanvas();
-        checkUrlParams(); // Kontrola, zda nepřicházíme přes odkaz od šéfa
+        checkUrlParams();
     });
 
-    // Podpora pro myš i dotyk
     function getPos(e) {
         const rect = canvas.getBoundingClientRect();
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -305,7 +320,6 @@
     canvas.addEventListener('mousedown', startDraw);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', stopDraw);
-    
     canvas.addEventListener('touchstart', startDraw);
     canvas.addEventListener('touchmove', draw);
     canvas.addEventListener('touchend', stopDraw);
@@ -314,32 +328,24 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 
-    // --- OPRAVENÁ LOGIKA PRO BEZPEČNÉ UTF-8 ŠIFROVÁNÍ ---
-    function generateShareLink() {
-        // Posbíráme data z formuláře
+    // --- GENEROVÁNÍ ODKAZU PRO ŠÉFA ---
+    function generateBossLink() {
         const rows = [];
         document.querySelectorAll('#hoursTable tbody tr').forEach(tr => {
             rows.push({
-                id: tr.dataset.id ? parseInt(tr.dataset.id) : Date.now(),
                 datum: tr.querySelector('.row-date').value,
                 zacatek: tr.querySelector('.row-start').value,
                 konec: tr.querySelector('.row-end').value,
-                prestashka: tr.querySelector('.row-pause').value,
-                cisloZakazky: "",
-                popisPrace: "",
-                sazba: 30,
-                projekt: tr.querySelector('.row-project').value,
-                selected: true
+                prestavka: tr.querySelector('.row-pause').value,
+                projekt: tr.querySelector('.row-project').value
             });
         });
 
         const appData = {
-            type: "abnahme",
             jmeno: document.getElementById('jmeno').value,
             firma: document.getElementById('firma').value,
             adresa: document.getElementById('adresa').value,
             mesto: document.getElementById('mesto').value,
-            podpisKundeText: document.getElementById('podpisKundeText').value,
             bezZkousky: document.getElementById('bezZkousky').checked,
             seZkouskou: document.getElementById('seZkouskou').checked,
             sVadami: document.getElementById('sVadami').checked,
@@ -349,89 +355,98 @@
         };
 
         try {
-            // Převedení objektu na JSON text
             const jsonString = JSON.stringify(appData);
-            // Bezpečné kódování textu s diakritikou do Base64
             const base64Encoded = btoa(unescape(encodeURIComponent(jsonString)));
             
-            // Sestavení čisté výsledné URL adresy
+            // Přidáme parametr &boss=1, aby se stránka rovnou zamkla
             const baseUrl = window.location.origin + window.location.pathname;
-            const finalLink = `${baseUrl}?sign=${base64Encoded}`;
+            const finalLink = `${baseUrl}?sign=${base64Encoded}&boss=1`;
 
-            // Zkopírování odkazu do schránky a upozornění uživatele
             navigator.clipboard.writeText(finalLink).then(() => {
-                alert('Odkaz pro šéfa byl úspěšně zkopírován do schránky! Můžeš ho rovnou vložit do WhatsAppu.');
+                alert('Odkaz pro šéfa zkopírován do schránky!');
             }).catch(() => {
-                alert('Odkaz se nepodařilo zkopírovat automaticky. Zde je:\n\n' + finalLink);
+                alert('Zkopíruj tento odkaz:\n\n' + finalLink);
             });
-
         } catch (err) {
             alert('Chyba při generování odkazu: ' + err.message);
         }
     }
 
-    // --- OPRAVENÁ LOGIKA PRO NAČÍTÁNÍ ODKAZU ---
+    // --- NAČÍTÁNÍ ODKAZU A UZAMČENÍ PRO ŠÉFA ---
     function checkUrlParams() {
         const urlParams = new URLSearchParams(window.location.search);
         const signParam = urlParams.get('sign');
+        const isBoss = urlParams.get('boss') === '1';
 
-        if (!signParam) return; // Žádná data v odkazu nejsou, načteme čistou stránku
+        if (signParam) {
+            try {
+                const decodedJson = decodeURIComponent(escape(atob(signParam)));
+                const data = JSON.parse(decodedJson);
 
-        try {
-            // Bezpečné dekódování z Base64 s podporou UTF-8 znaků
-            const decodedJson = decodeURIComponent(escape(atob(signParam)));
-            const data = JSON.parse(decodedJson);
+                if (data.jmeno) document.getElementById('jmeno').value = data.jmeno;
+                if (data.firma) document.getElementById('firma').value = data.firma;
+                if (data.adresa) document.getElementById('adresa').value = data.adresa;
+                if (data.mesto) document.getElementById('mesto').value = data.mesto;
+                if (data.vadyText) document.getElementById('vadyText').value = data.vadyText;
+                if (data.odstraneniDo) document.getElementById('odstraneniDo').value = data.odstraneniDo;
+                
+                document.getElementById('bezZkousky').checked = !!data.bezZkousky;
+                document.getElementById('seZkouskou').checked = !!data.seZkouskou;
+                document.getElementById('sVadami').checked = !!data.sVadami;
 
-            // Vyplnění hlavních polí formuláře naimportovanými daty
-            if (data.jmeno) document.getElementById('jmeno').value = data.jmeno;
-            if (data.firma) document.getElementById('firma').value = data.firma;
-            if (data.adresa) document.getElementById('adresa').value = data.adresa;
-            if (data.mesto) document.getElementById('mesto').value = data.mesto;
-            if (data.vadyText) document.getElementById('vadyText').value = data.vadyText;
-            if (data.odstraneniDo) document.getElementById('odstraneniDo').value = data.odstraneniDo;
-            
-            document.getElementById('bezZkousky').checked = !!data.bezZkousky;
-            document.getElementById('seZkouskou').checked = !!data.seZkouskou;
-            document.getElementById('sVadami').checked = !!data.sVadami;
+                const tbody = document.querySelector('#hoursTable tbody');
+                tbody.innerHTML = '';
 
-            // Vyčištění a sestavení tabulky odpracovaných hodin
-            const tbody = document.querySelector('#hoursTable tbody');
-            tbody.innerHTML = '';
-
-            if (data.zaznamy && Array.isArray(data.zaznamy)) {
-                data.zaznamy.forEach(item => {
-                    // OŠETŘENÍ FORMÁTU DATA (Převod z YYYY-MM-DD zpět na D. M. YYYY)
-                    let displayDate = item.datum;
-                    if (displayDate && displayDate.includes('-')) {
-                        const parts = displayDate.split('-');
-                        if (parts.length === 3) {
-                            displayDate = `${parseInt(parts[2])}. ${parseInt(parts[1])}. ${parts[0]}`;
-                        }
-                    }
-
-                    const tr = document.createElement('tr');
-                    tr.dataset.id = item.id;
-                    tr.innerHTML = `
-                        <td><input type="text" class="row-date" value="${displayDate || ''}"></td>
-                        <td><input type="time" class="row-start" value="${item.zacatek || ''}"></td>
-                        <td><input type="time" class="row-end" value="${item.konec || ''}"></td>
-                        <td><input type="text" class="row-pause" value="${item.prestavka || item.prestashka || '0'}"></td>
-                        <td><input type="text" class="row-project" value="${item.projekt || ''}"></td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                if (data.zaznamy && Array.isArray(data.zaznamy)) {
+                    data.zaznamy.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td><input type="text" class="row-date" value="${item.datum || ''}"></td>
+                            <td><input type="time" class="row-start" value="${item.zacatek || ''}"></td>
+                            <td><input type="time" class="row-end" value="${item.konec || ''}"></td>
+                            <td><input type="text" class="row-pause" value="${item.prestavka || '0'}"></td>
+                            <td><input type="text" class="row-project" value="${item.projekt || ''}"></td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+            } catch (error) {
+                console.error(error);
+                document.getElementById('errorAlert').innerText = 'Chyba načítání dat.';
+                document.getElementById('errorAlert').style.display = 'block';
             }
+        }
 
-        } catch (error) {
-            console.error(error);
-            const alertBox = document.getElementById('errorAlert');
-            alertBox.innerText = 'Chyba načítání odkazu. Data jsou poškozená nebo neúplná.';
-            alertBox.style.display = 'block';
+        // Pokud je to šéf, uzamkneme formulář
+        if (isBoss) {
+            document.getElementById('mainContainer').classList.add('boss-mode');
+            document.getElementById('petrActions').style.display = 'none';
+            document.getElementById('bossActions').style.display = 'flex';
         }
     }
 
-    // Funkce pro stažení PDF do mobilu/PC
+    // --- POTVRZENÍ A ODESLÁNÍ DO APLIKACE VOLTAPLAN ---
+    function confirmSignature() {
+        // Tady můžeme vytáhnout base64 obrázek podpisu, kdybys ho chtěl poslat do appky
+        // const signatureData = canvas.toDataURL('image/png');
+        
+        // Změň toto URL schéma podle toho, jak si ho ve SwiftUI nastavíš
+        const appScheme = "voltaplan://signature_complete?status=success";
+        
+        // Spustí přesměrování (v iOS otevře aplikaci)
+        window.location.href = appScheme;
+        
+        // Pojistka pro prohlížeč
+        setTimeout(() => {
+            alert("Podepsáno! Nyní se můžeš vrátit do aplikace.");
+        }, 500);
+    }
+
     function saveAsPDF() {
+        // Skryjeme mazací tlačítko a akci před tiskem
+        document.getElementById('btnClearSignature').style.display = 'none';
+        document.getElementById('bossActions').style.display = 'none';
+        
         const element = document.querySelector('.container');
         const opt = {
             margin:       10,
@@ -440,7 +455,12 @@
             html2canvas:  { scale: 2, useCORS: true },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
-        html2pdf().set(opt).from(element).save();
+        
+        html2pdf().set(opt).from(element).save().then(() => {
+            // Vrátíme tlačítka zpět
+            document.getElementById('btnClearSignature').style.display = 'block';
+            document.getElementById('bossActions').style.display = 'flex';
+        });
     }
 </script>
 
